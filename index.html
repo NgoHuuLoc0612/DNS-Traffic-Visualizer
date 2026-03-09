@@ -1,0 +1,1601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>DNS Traffic Visualizer</title>
+
+<!-- Three.js r128, D3 v7, Chart.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;500;700&display=swap" rel="stylesheet"/>
+
+<style>
+/* ══════════════════════════════════════════════
+   DESIGN SYSTEM — industrial cyber-ops terminal
+   Palette: deep black, acid teal, neon amber, crimson alert
+═══════════════════════════════════════════════ */
+:root{
+  --bg:#060b10;--bg1:#0a1018;--bg2:#0f1825;--bg3:#152030;
+  --teal:#00f5d4;--teal2:#00c8ae;--amber:#ffb300;--amber2:#ff8f00;
+  --red:#ff3357;--red2:#c4192a;--green:#39ff14;
+  --text:#c8dce8;--text2:#7899aa;--text3:#3d5a6e;
+  --border:#1a3040;--border2:#0f2030;
+  --glow-t:0 0 12px #00f5d480;--glow-a:0 0 12px #ffb30080;--glow-r:0 0 12px #ff335780;
+  --font-mono:'Share Tech Mono',monospace;
+  --font-ui:'Rajdhani',sans-serif;
+  --panel-radius:4px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;background:var(--bg);color:var(--text);
+  font-family:var(--font-ui);font-size:14px;overflow:hidden}
+
+/* ─── Layout ─── */
+#app{display:grid;grid-template-rows:46px 1fr 220px;height:100vh;gap:0}
+#topbar{display:flex;align-items:center;gap:12px;padding:0 16px;
+  background:var(--bg1);border-bottom:1px solid var(--border);position:relative;z-index:100}
+#main{display:grid;grid-template-columns:260px 1fr 300px;overflow:hidden}
+#bottom-strip{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;
+  background:var(--bg1);border-top:1px solid var(--border);overflow:hidden}
+
+/* ─── Top bar ─── */
+.logo{font-family:var(--font-mono);font-size:15px;color:var(--teal);
+  letter-spacing:3px;text-transform:uppercase;text-shadow:var(--glow-t)}
+.logo span{color:var(--amber)}
+.status-pill{display:flex;align-items:center;gap:6px;padding:4px 10px;
+  border:1px solid var(--border);border-radius:2px;font-size:11px;
+  font-family:var(--font-mono);color:var(--text2)}
+.status-pill .dot{width:7px;height:7px;border-radius:50%;background:var(--green);
+  animation:blink 1s ease-in-out infinite;box-shadow:0 0 6px var(--green)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.stat-badge{font-family:var(--font-mono);font-size:12px;
+  padding:3px 10px;border-left:2px solid var(--teal);color:var(--teal);margin-left:8px}
+.stat-badge span{color:var(--amber)}
+.tb-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.ctrl-btn{background:none;border:1px solid var(--border2);color:var(--text2);
+  padding:5px 12px;cursor:pointer;font-family:var(--font-mono);font-size:11px;
+  transition:.2s;border-radius:2px}
+.ctrl-btn:hover{border-color:var(--teal);color:var(--teal);box-shadow:var(--glow-t)}
+.ctrl-btn.active{border-color:var(--teal);color:var(--teal);background:#00f5d415}
+.ctrl-btn.danger{border-color:var(--red);color:var(--red)}
+.ctrl-btn.danger:hover{box-shadow:var(--glow-r)}
+
+/* ─── Left panel ─── */
+#left-panel{background:var(--bg1);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+.panel-section{padding:10px 12px;border-bottom:1px solid var(--border2)}
+.section-title{font-family:var(--font-mono);font-size:10px;color:var(--teal);
+  letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;
+  display:flex;align-items:center;gap:6px}
+.section-title::before{content:'';display:block;width:3px;height:12px;
+  background:var(--teal);box-shadow:var(--glow-t)}
+
+/* Metric cards */
+.metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.metric-card{background:var(--bg2);border:1px solid var(--border2);
+  padding:8px 10px;border-radius:var(--panel-radius)}
+.metric-label{font-size:9px;color:var(--text3);font-family:var(--font-mono);
+  text-transform:uppercase;letter-spacing:1px}
+.metric-value{font-family:var(--font-mono);font-size:18px;color:var(--teal);
+  line-height:1.1;margin-top:2px}
+.metric-value.amber{color:var(--amber)}
+.metric-value.red{color:var(--red);animation:flash .5s ease infinite alternate}
+@keyframes flash{0%{opacity:1}100%{opacity:.5}}
+.metric-sub{font-size:9px;color:var(--text3);margin-top:2px}
+
+/* Live feed */
+#live-feed{flex:1;overflow-y:auto;font-family:var(--font-mono);font-size:10px;
+  padding:4px 8px}
+#live-feed .row{display:flex;gap:6px;padding:2px 0;border-bottom:1px solid #0a1820;
+  transition:background .3s;cursor:default}
+#live-feed .row:hover{background:#0f2030}
+#live-feed .row .ts{color:var(--text3);min-width:55px}
+#live-feed .row .ip{color:var(--teal2);min-width:90px;overflow:hidden;text-overflow:ellipsis}
+#live-feed .row .qname{flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+#live-feed .row .qtype{color:var(--amber);min-width:40px}
+#live-feed .row .lat{color:var(--text2);min-width:42px;text-align:right}
+#live-feed .row.dga{background:#ff33570a;border-left:2px solid var(--red)}
+#live-feed .row.dga .qname{color:var(--red)}
+
+/* Sliders */
+.slider-group{display:flex;flex-direction:column;gap:8px;padding:6px 0}
+.slider-row{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center}
+.slider-row label{font-size:10px;color:var(--text2);font-family:var(--font-mono)}
+.slider-row input[type=range]{-webkit-appearance:none;width:100%;height:3px;
+  background:var(--border);border-radius:2px;outline:none;cursor:pointer}
+.slider-row input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:12px;height:12px;border-radius:50%;
+  background:var(--teal);box-shadow:var(--glow-t);cursor:pointer}
+.slider-val{font-family:var(--font-mono);font-size:11px;color:var(--teal);
+  min-width:40px;text-align:right}
+
+/* ─── Center: Tab switcher + canvas ─── */
+#center{background:var(--bg);display:flex;flex-direction:column;overflow:hidden;position:relative}
+#view-tabs{display:flex;gap:0;background:var(--bg1);border-bottom:1px solid var(--border)}
+.vtab{padding:10px 18px;font-family:var(--font-mono);font-size:10px;
+  color:var(--text3);cursor:pointer;letter-spacing:1px;
+  border-right:1px solid var(--border2);border-bottom:2px solid transparent;
+  transition:.2s;text-transform:uppercase;user-select:none}
+.vtab:hover{color:var(--text2)}
+.vtab.active{color:var(--teal);border-bottom-color:var(--teal);background:var(--bg2)}
+#view-container{flex:1;position:relative;overflow:hidden}
+.view-pane{position:absolute;inset:0;display:none}
+.view-pane.active{display:flex;flex-direction:column}
+
+/* WebGL 3D canvas */
+#canvas3d{width:100%;height:100%;display:block}
+
+/* D3 network graph */
+#svg-graph{width:100%;height:100%}
+
+/* Timeline chart */
+#chart-wrap{padding:12px;display:flex;flex-direction:column;gap:10px;height:100%;overflow-y:auto}
+
+/* ─── Right panel ─── */
+#right-panel{background:var(--bg1);border-left:1px solid var(--border);
+  display:flex;flex-direction:column;overflow-y:auto}
+#rp-tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--border)}
+.rp-tab{flex:1;padding:8px 0;text-align:center;font-family:var(--font-mono);
+  font-size:9px;letter-spacing:1px;color:var(--text3);cursor:pointer;
+  text-transform:uppercase;border-right:1px solid var(--border2);transition:.2s}
+.rp-tab:hover{color:var(--text2)}
+.rp-tab.active{color:var(--amber);background:var(--bg1);
+  border-bottom:2px solid var(--amber)}
+.rp-pane{display:none;flex-direction:column;flex:1;overflow-y:auto;padding:10px}
+.rp-pane.active{display:flex}
+
+/* Domain analysis */
+.domain-input-row{display:flex;gap:6px;margin-bottom:10px}
+.domain-input-row input{flex:1;background:var(--bg2);border:1px solid var(--border);
+  color:var(--text);font-family:var(--font-mono);font-size:11px;padding:6px 8px;
+  border-radius:2px;outline:none}
+.domain-input-row input:focus{border-color:var(--teal)}
+.domain-input-row button{background:var(--teal);color:var(--bg);border:none;
+  padding:6px 12px;font-family:var(--font-mono);font-size:11px;cursor:pointer;
+  font-weight:700;border-radius:2px}
+.dga-result{background:var(--bg2);border:1px solid var(--border);
+  padding:10px;border-radius:var(--panel-radius)}
+.dga-bar-row{display:flex;align-items:center;gap:8px;margin:4px 0}
+.dga-bar-label{font-family:var(--font-mono);font-size:9px;color:var(--text2);min-width:90px}
+.dga-bar-track{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.dga-bar-fill{height:100%;border-radius:2px;transition:.5s}
+
+/* Queue theory panel */
+.queue-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.queue-meter{background:var(--bg2);border:1px solid var(--border2);
+  padding:8px;border-radius:var(--panel-radius)}
+.queue-meter-label{font-size:9px;color:var(--text3);font-family:var(--font-mono)}
+.queue-meter-val{font-family:var(--font-mono);font-size:16px;color:var(--amber)}
+.utilization-bar{height:8px;background:var(--border);border-radius:4px;
+  overflow:hidden;margin-top:8px}
+.utilization-fill{height:100%;border-radius:4px;transition:width 1s ease}
+
+/* Markov chain canvas */
+#markov-canvas{width:100%;height:260px;border:1px solid var(--border2);
+  border-radius:var(--panel-radius);background:var(--bg2)}
+
+/* Spectral info */
+.info-row{display:flex;justify-content:space-between;padding:5px 0;
+  border-bottom:1px solid var(--border2);font-family:var(--font-mono);font-size:11px}
+.info-row .key{color:var(--text2)}
+.info-row .val{color:var(--teal)}
+
+/* ─── Bottom strip ─── */
+.bottom-cell{padding:8px 12px;border-right:1px solid var(--border);overflow:hidden}
+.bottom-cell:last-child{border-right:none}
+.bc-title{font-family:var(--font-mono);font-size:9px;color:var(--text3);
+  letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
+.bc-chart-wrap{height:160px;position:relative}
+
+/* Top domains list */
+#top-domains-list{overflow-y:auto;max-height:165px}
+.domain-row{display:flex;align-items:center;gap:6px;padding:3px 0;
+  border-bottom:1px solid #0a1820}
+.domain-row .rank{color:var(--text3);font-family:var(--font-mono);
+  font-size:9px;min-width:18px}
+.domain-row .dname{flex:1;font-family:var(--font-mono);font-size:10px;
+  overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.domain-row .cnt{font-family:var(--font-mono);font-size:10px;color:var(--amber)}
+.domain-row .bar{height:3px;background:var(--teal);border-radius:1px;min-width:2px}
+
+/* Scrollbars */
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+::-webkit-scrollbar-thumb:hover{background:var(--teal2)}
+
+/* Overlays */
+#tooltip{position:fixed;background:#0a1825ee;border:1px solid var(--teal);
+  color:var(--text);font-family:var(--font-mono);font-size:11px;
+  padding:8px 12px;pointer-events:none;z-index:9999;border-radius:3px;
+  display:none;max-width:220px;line-height:1.6}
+#loader{position:fixed;inset:0;background:var(--bg);display:flex;
+  align-items:center;justify-content:center;z-index:10000;
+  flex-direction:column;gap:16px;transition:opacity .5s}
+#loader .logo-big{font-family:var(--font-mono);font-size:24px;color:var(--teal);
+  letter-spacing:6px;text-shadow:var(--glow-t)}
+.spinner{width:40px;height:40px;border:2px solid var(--border);
+  border-top-color:var(--teal);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loader p{font-family:var(--font-mono);font-size:11px;color:var(--text2)}
+</style>
+</head>
+<body>
+
+<!-- Loader -->
+<div id="loader">
+  <div class="logo-big">DNS//VISUAL</div>
+  <div class="spinner"></div>
+  <p id="loader-msg">Initializing engine...</p>
+</div>
+
+<div id="tooltip"></div>
+
+<div id="app">
+  <!-- ══ TOP BAR ══ -->
+  <div id="topbar">
+    <div class="logo">DNS<span>/</span>TRAFFIC<span>//</span>VISUALIZER</div>
+    <div class="status-pill"><div class="dot"></div><span id="conn-status">CONNECTING</span></div>
+    <div class="stat-badge">PACKETS/S <span id="pps-val">—</span></div>
+    <div class="stat-badge">TOTAL <span id="total-val">—</span></div>
+    <div class="stat-badge">DGA <span id="dga-val" style="color:var(--red)">—</span></div>
+    <div class="stat-badge">P95 <span id="p95-val">—</span>ms</div>
+    <div class="tb-right">
+      <button class="ctrl-btn" id="btn-pause">⏸ PAUSE</button>
+      <button class="ctrl-btn" onclick="exportData()">⬇ EXPORT</button>
+      <button class="ctrl-btn danger" onclick="analyzeFullGraph()">⚡ ANALYZE</button>
+      <div class="status-pill" id="engine-badge">ENGINE: —</div>
+    </div>
+  </div>
+
+  <!-- ══ MAIN ══ -->
+  <div id="main">
+    <!-- Left Panel -->
+    <div id="left-panel">
+      <div class="panel-section">
+        <div class="section-title">Live Metrics</div>
+        <div class="metric-grid">
+          <div class="metric-card"><div class="metric-label">Queries/s</div>
+            <div class="metric-value" id="m-qps">—</div></div>
+          <div class="metric-card"><div class="metric-label">Latency p50</div>
+            <div class="metric-value amber" id="m-lat">—</div><div class="metric-sub">ms</div></div>
+          <div class="metric-card"><div class="metric-label">NXDOMAIN</div>
+            <div class="metric-value red" id="m-nx">—</div></div>
+          <div class="metric-card"><div class="metric-label">Graph Nodes</div>
+            <div class="metric-value" id="m-nodes">—</div></div>
+          <div class="metric-card"><div class="metric-label">Anomaly Z</div>
+            <div class="metric-value" id="m-zscore">—</div></div>
+          <div class="metric-card"><div class="metric-label">DGA Detected</div>
+            <div class="metric-value red" id="m-dga">—</div></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">System</div>
+        <div class="metric-grid">
+          <div class="metric-card"><div class="metric-label">CPU %</div>
+            <div class="metric-value" id="m-cpu">—</div></div>
+          <div class="metric-card"><div class="metric-label">Memory %</div>
+            <div class="metric-value amber" id="m-mem">—</div></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">Simulation Control</div>
+        <div class="slider-group">
+          <div class="slider-row">
+            <label>λ QPS</label>
+            <span class="slider-val" id="sv-lambda">80</span>
+          </div>
+          <input type="range" id="sl-lambda" min="5" max="500" value="80" step="5"
+            oninput="updateSlider('lambda',this.value)"/>
+          <div class="slider-row">
+            <label>DGA Prob</label>
+            <span class="slider-val" id="sv-dga">3%</span>
+          </div>
+          <input type="range" id="sl-dga" min="0" max="50" value="3" step="1"
+            oninput="updateSlider('dga',this.value)"/>
+          <div class="slider-row">
+            <label>Tick ms</label>
+            <span class="slider-val" id="sv-tick">500</span>
+          </div>
+          <input type="range" id="sl-tick" min="100" max="3000" value="500" step="100"
+            oninput="updateSlider('tick',this.value)"/>
+        </div>
+      </div>
+
+      <div class="panel-section" style="flex:1;min-height:200px;display:flex;flex-direction:column">
+        <div class="section-title">Live Feed</div>
+        <div id="live-feed"></div>
+      </div>
+    </div>
+
+    <!-- Center: Views -->
+    <div id="center">
+      <div id="view-tabs">
+        <div class="vtab active" onclick="switchView('3d')">3D Network</div>
+        <div class="vtab" onclick="switchView('graph')">Force Graph</div>
+        <div class="vtab" onclick="switchView('timeline')">Timeline</div>
+        <div class="vtab" onclick="switchView('geo')">Geo Map</div>
+      </div>
+      <div id="view-container">
+        <!-- 3D -->
+        <div class="view-pane active" id="pane-3d">
+          <canvas id="canvas3d"></canvas>
+        </div>
+        <!-- Force Graph -->
+        <div class="view-pane" id="pane-graph">
+          <svg id="svg-graph"></svg>
+        </div>
+        <!-- Timeline -->
+        <div class="view-pane" id="pane-timeline">
+          <div id="chart-wrap">
+            <canvas id="chart-ts" style="max-height:150px"></canvas>
+            <canvas id="chart-qtype" style="max-height:140px"></canvas>
+            <canvas id="chart-lat" style="max-height:140px"></canvas>
+          </div>
+        </div>
+        <!-- Geo -->
+        <div class="view-pane" id="pane-geo">
+          <canvas id="geo-canvas" style="width:100%;height:100%"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel -->
+    <div id="right-panel">
+      <div id="rp-tabs">
+        <div class="rp-tab active" onclick="switchRpTab('dga')">DGA</div>
+        <div class="rp-tab" onclick="switchRpTab('queue')">Queue</div>
+        <div class="rp-tab" onclick="switchRpTab('markov')">Markov</div>
+        <div class="rp-tab" onclick="switchRpTab('spectral')">Spectral</div>
+      </div>
+
+      <!-- DGA Analysis -->
+      <div class="rp-pane active" id="rpane-dga">
+        <div class="domain-input-row">
+          <input id="domain-input" type="text" placeholder="domain.com" value="xkcd823ab.net"/>
+          <button onclick="analyzeDomain()">SCAN</button>
+        </div>
+        <div id="dga-result" class="dga-result">
+          <div class="info-row"><span class="key">Entropy</span><span class="val" id="dr-entropy">—</span></div>
+          <div class="info-row"><span class="key">Consonant Ratio</span><span class="val" id="dr-cr">—</span></div>
+          <div class="info-row"><span class="key">Bigram Score</span><span class="val" id="dr-bg">—</span></div>
+          <div class="info-row"><span class="key">DGA Probability</span><span class="val" id="dr-prob">—</span></div>
+          <div class="info-row"><span class="key">Verdict</span><span class="val" id="dr-verdict">—</span></div>
+          <div style="margin-top:10px">
+            <div class="dga-bar-row"><span class="dga-bar-label">DGA Score</span>
+              <div class="dga-bar-track"><div class="dga-bar-fill" id="db-dga" style="background:var(--red)"></div></div></div>
+            <div class="dga-bar-row"><span class="dga-bar-label">Entropy</span>
+              <div class="dga-bar-track"><div class="dga-bar-fill" id="db-ent" style="background:var(--teal)"></div></div></div>
+            <div class="dga-bar-row"><span class="dga-bar-label">Consonants</span>
+              <div class="dga-bar-track"><div class="dga-bar-fill" id="db-cons" style="background:var(--amber)"></div></div></div>
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <div class="section-title" style="margin-top:8px">Recent DGA Alerts</div>
+          <div id="dga-alerts" style="font-family:var(--font-mono);font-size:10px;
+            max-height:200px;overflow-y:auto"></div>
+        </div>
+      </div>
+
+      <!-- Queue Theory -->
+      <div class="rp-pane" id="rpane-queue">
+        <div class="section-title">M/M/c Queue Model</div>
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+          <div style="flex:1">
+            <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">Servers (c)</div>
+            <input id="q-c" type="number" value="1" min="1" max="20"
+              style="width:100%;background:var(--bg2);border:1px solid var(--border);
+              color:var(--teal);font-family:var(--font-mono);padding:4px 6px;font-size:12px"
+              onchange="updateQueue()"/>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">μ (qps)</div>
+            <input id="q-mu" type="number" value="300" min="10" max="10000"
+              style="width:100%;background:var(--bg2);border:1px solid var(--border);
+              color:var(--amber);font-family:var(--font-mono);padding:4px 6px;font-size:12px"
+              onchange="updateQueue()"/>
+          </div>
+        </div>
+        <div class="queue-grid" id="queue-metrics"></div>
+        <div style="margin-top:10px">
+          <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">Utilization ρ</div>
+          <div class="utilization-bar"><div class="utilization-fill" id="util-fill" style="width:0%;background:var(--teal)"></div></div>
+        </div>
+        <div style="margin-top:12px">
+          <canvas id="chart-queue" style="max-height:180px"></canvas>
+        </div>
+      </div>
+
+      <!-- Markov -->
+      <div class="rp-pane" id="rpane-markov">
+        <div class="section-title">Markov Chain — Query Types</div>
+        <canvas id="markov-canvas"></canvas>
+        <div style="margin-top:8px">
+          <div class="section-title">Stationary Distribution</div>
+          <div id="markov-stat" style="font-family:var(--font-mono);font-size:10px"></div>
+        </div>
+      </div>
+
+      <!-- Spectral -->
+      <div class="rp-pane" id="rpane-spectral">
+        <div class="section-title">Spectral Graph Theory</div>
+        <div id="spectral-info"></div>
+        <div style="margin-top:10px">
+          <canvas id="chart-spectral" style="max-height:180px"></canvas>
+        </div>
+        <div style="margin-top:10px">
+          <div class="section-title">PageRank Top Nodes</div>
+          <div id="pr-list" style="font-family:var(--font-mono);font-size:10px;max-height:200px;overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ BOTTOM STRIP ══ -->
+  <div id="bottom-strip">
+    <div class="bottom-cell">
+      <div class="bc-title">QType Distribution</div>
+      <div class="bc-chart-wrap"><canvas id="chart-qtype-pie"></canvas></div>
+    </div>
+    <div class="bottom-cell">
+      <div class="bc-title">Latency Histogram</div>
+      <div class="bc-chart-wrap"><canvas id="chart-lat-hist"></canvas></div>
+    </div>
+    <div class="bottom-cell">
+      <div class="bc-title">Resolver Load</div>
+      <div class="bc-chart-wrap"><canvas id="chart-resolver"></canvas></div>
+    </div>
+    <div class="bottom-cell">
+      <div class="bc-title">Top Domains</div>
+      <div id="top-domains-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════
+//  DNS Traffic Visualizer — Frontend Engine
+// ═══════════════════════════════════════════════════════════════
+const API   = `http://${location.hostname}:8000`;
+const WS_URL= `ws://${location.hostname}:8000/ws`;
+const COLORS = {
+  teal:'#00f5d4',teal2:'#00c8ae',amber:'#ffb300',
+  red:'#ff3357',green:'#39ff14',bg:'#060b10',bg2:'#0f1825',
+  text:'#c8dce8',text2:'#7899aa'
+};
+const QTYPE_COLORS = {
+  A:'#00f5d4',AAAA:'#39ff14',MX:'#ffb300',CNAME:'#00c8ae',
+  TXT:'#ff8f00',NS:'#ff3357',PTR:'#8b5cf6',SOA:'#06b6d4',SRV:'#ec4899'
+};
+
+// ── State ─────────────────────────────────────────────────────
+const S = {
+  ws: null, paused: false,
+  graphData: {nodes:[], edges:[]},
+  stats: {}, ts: [], ppsHistory: [],
+  ppsLast: {t:0, n:0}, ppsVal: 0,
+  dgaAlerts: [], latencyBuf: [],
+  queueHistory: {lambda:[], rho:[], wait:[]},
+  spectralHistory: [],
+  currentView: '3d',
+  currentRpTab: 'dga',
+  totalProcessed: 0,
+};
+
+// ── Chart instances ────────────────────────────────────────────
+let chartTs=null, chartQtype=null, chartLat=null,
+    chartQtypePie=null, chartLatHist=null, chartResolver=null,
+    chartQueue=null, chartSpectral=null;
+
+// ═══════════════════════════════════════════════════════════════
+//  THREE.JS 3D Network Visualization
+// ═══════════════════════════════════════════════════════════════
+let threeRenderer, threeScene, threeCamera, threeRaycaster, threeMouse;
+let threeNodes={}, threeEdgeLines=[], threeParticles=null;
+let threeAnimFrame=null;
+
+function init3D(){
+  const canvas = document.getElementById('canvas3d');
+  const parent = canvas.parentElement;
+
+  threeRenderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+  threeRenderer.setPixelRatio(window.devicePixelRatio);
+  threeRenderer.setSize(parent.clientWidth, parent.clientHeight);
+  threeRenderer.setClearColor(0x060b10, 1);
+
+  threeScene = new THREE.Scene();
+  threeScene.fog = new THREE.FogExp2(0x060b10, 0.035);
+
+  threeCamera = new THREE.PerspectiveCamera(55, parent.clientWidth/parent.clientHeight, 0.1, 1000);
+  threeCamera.position.set(0, 20, 60);
+
+  // Grid
+  const grid = new THREE.GridHelper(120, 40, 0x0a1825, 0x0a1825);
+  threeScene.add(grid);
+
+  // Ambient + directional light
+  threeScene.add(new THREE.AmbientLight(0x112233, 0.5));
+  const dir = new THREE.DirectionalLight(0x00f5d4, 1.5);
+  dir.position.set(20, 40, 20); threeScene.add(dir);
+  const dir2 = new THREE.DirectionalLight(0xffb300, 0.8);
+  dir2.position.set(-20, 10, -20); threeScene.add(dir2);
+
+  // Particle field background
+  const partGeo = new THREE.BufferGeometry();
+  const partCount = 800;
+  const positions = new Float32Array(partCount*3);
+  for(let i=0;i<partCount*3;i++) positions[i] = (Math.random()-0.5)*200;
+  partGeo.setAttribute('position', new THREE.BufferAttribute(positions,3));
+  threeParticles = new THREE.Points(partGeo,
+    new THREE.PointsMaterial({color:0x0f2030,size:0.4,transparent:true,opacity:0.6}));
+  threeScene.add(threeParticles);
+
+  threeRaycaster = new THREE.Raycaster();
+  threeMouse = new THREE.Vector2(-9999,-9999);
+
+  // Mouse events
+  canvas.addEventListener('mousemove', e=>{
+    const r=canvas.getBoundingClientRect();
+    threeMouse.x = ((e.clientX-r.left)/r.width)*2-1;
+    threeMouse.y = -((e.clientY-r.top)/r.height)*2+1;
+  });
+  canvas.addEventListener('click', on3DClick);
+
+  // Orbit controls (simple)
+  let dragging=false, lastX=0, lastY=0, theta=0, phi=0.3, radius=70;
+  canvas.addEventListener('mousedown', e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; });
+  window.addEventListener('mouseup', ()=>dragging=false);
+  canvas.addEventListener('mousemove', e=>{
+    if(!dragging) return;
+    theta -= (e.clientX-lastX)*0.005;
+    phi = Math.max(0.05, Math.min(Math.PI/2-0.05, phi-(e.clientY-lastY)*0.005));
+    lastX=e.clientX; lastY=e.clientY;
+  });
+  canvas.addEventListener('wheel', e=>{
+    radius = Math.max(15, Math.min(200, radius+e.deltaY*0.05));
+  });
+
+  let t=0;
+  function animate(){
+    threeAnimFrame = requestAnimationFrame(animate);
+    t += 0.005;
+    threeCamera.position.x = radius*Math.sin(theta)*Math.cos(phi);
+    threeCamera.position.y = radius*Math.sin(phi)+5;
+    threeCamera.position.z = radius*Math.cos(theta)*Math.cos(phi);
+    threeCamera.lookAt(0,0,0);
+
+    // Rotate particles slowly
+    if(threeParticles) threeParticles.rotation.y += 0.0003;
+
+    // Pulse node meshes
+    Object.values(threeNodes).forEach(obj=>{
+      if(obj.mesh && obj.pulse) obj.mesh.scale.setScalar(1+0.08*Math.sin(t*2+obj.phaseOff));
+    });
+
+    // Hover detection
+    threeRaycaster.setFromCamera(threeMouse, threeCamera);
+    const meshes = Object.values(threeNodes).map(n=>n.mesh).filter(Boolean);
+    const hits = threeRaycaster.intersectObjects(meshes);
+    if(hits.length>0){
+      const uid = hits[0].object.userData.id;
+      showTooltip3D(uid, hits[0].point);
+    } else hideTooltip();
+
+    threeRenderer.render(threeScene, threeCamera);
+  }
+  animate();
+
+  window.addEventListener('resize', ()=>{
+    const w=parent.clientWidth, h=parent.clientHeight;
+    threeCamera.aspect=w/h; threeCamera.updateProjectionMatrix();
+    threeRenderer.setSize(w,h);
+  });
+}
+
+const NODE_TYPE_COLOR = {
+  client:  0x00f5d4,
+  resolver:0xffb300,
+  domain:  0x39ff14,
+  dga:     0xff3357,
+};
+
+function update3DGraph(graphData){
+  if(!threeScene) return;
+  const {nodes, edges} = graphData;
+  if(!nodes||nodes.length===0) return;
+
+  // Place nodes in 3D sphere layout
+  nodes.slice(0,120).forEach((n, i)=>{
+    const id = n.id;
+    if(!threeNodes[id]){
+      const phi   = Math.acos(-1+2*i/nodes.length);
+      const theta = Math.sqrt(nodes.length*Math.PI)*phi;
+      const r     = 28;
+      const x = r*Math.sin(phi)*Math.cos(theta) + (Math.random()-0.5)*5;
+      const y = r*Math.sin(phi)*Math.sin(theta) + (Math.random()-0.5)*5;
+      const z = r*Math.cos(phi) + (Math.random()-0.5)*5;
+
+      const isDGA = n.anomaly_score > 0.5;
+      const color = isDGA ? NODE_TYPE_COLOR.dga : (NODE_TYPE_COLOR[n.type]||0x445566);
+      const size  = n.type==='resolver' ? 1.5 : n.type==='client' ? 0.8 : 0.6;
+
+      const geo  = new THREE.SphereGeometry(size, 12, 12);
+      const mat  = new THREE.MeshPhongMaterial({
+        color, emissive: color, emissiveIntensity:0.3,
+        transparent:true, opacity:0.9,
+        wireframe: isDGA
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x,y,z);
+      mesh.userData = {id, node:n};
+      threeScene.add(mesh);
+
+      // Label sprite (simplified)
+      const label = makeTextSprite(id.length>18?id.slice(0,18)+'…':id,
+        isDGA?'#ff3357': n.type==='resolver'?'#ffb300':'#00f5d4');
+      label.position.set(x, y+size+0.5, z);
+      threeScene.add(label);
+
+      threeNodes[id] = {mesh, label, pos:{x,y,z},
+        pulse: n.type!=='domain', phaseOff: Math.random()*Math.PI*2};
+    } else {
+      // Update color for anomaly
+      const isDGA2 = n.anomaly_score > 0.5;
+      if(isDGA2) {
+        threeNodes[id].mesh.material.color.setHex(0xff3357);
+        threeNodes[id].mesh.material.wireframe = true;
+      }
+    }
+  });
+
+  // Draw edges
+  threeEdgeLines.forEach(l=>threeScene.remove(l));
+  threeEdgeLines=[];
+  edges.slice(0,200).forEach(e=>{
+    const sn=threeNodes[e.src], dn=threeNodes[e.dst];
+    if(!sn||!dn) return;
+    const pts=[new THREE.Vector3(sn.pos.x,sn.pos.y,sn.pos.z),
+               new THREE.Vector3(dn.pos.x,dn.pos.y,dn.pos.z)];
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const alpha = Math.min(0.8, 0.1 + e.weight/50);
+    const mat = new THREE.LineBasicMaterial({
+      color: QTYPE_COLORS[e.qtype]||0x1a3040,
+      transparent:true, opacity:alpha
+    });
+    const line = new THREE.Line(geo,mat);
+    threeScene.add(line);
+    threeEdgeLines.push(line);
+  });
+}
+
+function makeTextSprite(text, color='#00f5d4'){
+  const canvas = document.createElement('canvas');
+  canvas.width=256; canvas.height=64;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='rgba(6,11,16,0.7)';
+  ctx.fillRect(0,0,256,64);
+  ctx.font='Bold 20px Share Tech Mono,monospace';
+  ctx.fillStyle=color;
+  ctx.textAlign='center';
+  ctx.fillText(text, 128, 40);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({map:tex,transparent:true,opacity:0.9});
+  const sp  = new THREE.Sprite(mat);
+  sp.scale.set(6, 1.5, 1);
+  return sp;
+}
+
+function on3DClick(e){
+  const canvas=document.getElementById('canvas3d');
+  const r=canvas.getBoundingClientRect();
+  const mouse=new THREE.Vector2(
+    ((e.clientX-r.left)/r.width)*2-1,
+    -((e.clientY-r.top)/r.height)*2+1
+  );
+  threeRaycaster.setFromCamera(mouse, threeCamera);
+  const meshes=Object.values(threeNodes).map(n=>n.mesh).filter(Boolean);
+  const hits=threeRaycaster.intersectObjects(meshes);
+  if(hits.length>0){
+    const id=hits[0].object.userData.id;
+    document.getElementById('domain-input').value=id;
+    switchRpTab('dga'); analyzeDomain();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  D3 Force-Directed Graph
+// ═══════════════════════════════════════════════════════════════
+let d3Sim=null, d3Svg=null, d3NodeSel=null, d3LinkSel=null;
+
+function initD3Graph(){
+  const el=document.getElementById('svg-graph');
+  const W=el.clientWidth||900, H=el.clientHeight||500;
+  d3Svg=d3.select('#svg-graph');
+  d3Svg.selectAll('*').remove();
+
+  const defs=d3Svg.append('defs');
+  // Glow filter
+  const glow=defs.append('filter').attr('id','glow');
+  glow.append('feGaussianBlur').attr('stdDeviation','3').attr('result','coloredBlur');
+  const fm=glow.append('feMerge');
+  fm.append('feMergeNode').attr('in','coloredBlur');
+  fm.append('feMergeNode').attr('in','SourceGraphic');
+
+  const g=d3Svg.append('g').attr('id','d3-root');
+  d3Svg.call(d3.zoom().scaleExtent([0.1,10]).on('zoom',e=>g.attr('transform',e.transform)));
+
+  d3Sim = d3.forceSimulation()
+    .force('link', d3.forceLink().id(d=>d.id).distance(60))
+    .force('charge', d3.forceManyBody().strength(-120))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide(18));
+
+  d3LinkSel = g.append('g').attr('class','links');
+  d3NodeSel = g.append('g').attr('class','nodes');
+
+  d3Sim.on('tick', ()=>{
+    if(d3LinkSel) d3LinkSel.selectAll('line')
+      .attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+      .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    if(d3NodeSel) d3NodeSel.selectAll('g.node')
+      .attr('transform',d=>`translate(${d.x},${d.y})`);
+  });
+}
+
+function updateD3Graph(graphData){
+  if(!d3Sim||!d3Svg) return;
+  const {nodes, edges} = graphData;
+  const nodeById={};
+  nodes.forEach(n=>nodeById[n.id]=n);
+
+  // Links
+  const links = edges.slice(0,300).map(e=>({
+    source:e.src, target:e.dst, weight:e.weight, qtype:e.qtype
+  }));
+
+  const g=d3Svg.select('#d3-root');
+  g.select('.links').selectAll('line').data(links, d=>d.source+d.target)
+    .join(
+      enter=>enter.append('line')
+        .attr('stroke', d=>QTYPE_COLORS[d.qtype]||'#1a3040')
+        .attr('stroke-width', d=>Math.min(4, 0.5+d.weight/20))
+        .attr('stroke-opacity',0.5)
+        .attr('filter','url(#glow)'),
+      update=>update,
+      exit=>exit.remove()
+    );
+
+  const drag = d3.drag()
+    .on('start', (ev,d)=>{ if(!ev.active) d3Sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+    .on('drag',  (ev,d)=>{ d.fx=ev.x; d.fy=ev.y; })
+    .on('end',   (ev,d)=>{ if(!ev.active) d3Sim.alphaTarget(0); d.fx=null; d.fy=null; });
+
+  const nodeGs = g.select('.nodes').selectAll('g.node').data(nodes.slice(0,150), d=>d.id)
+    .join(
+      enter=>{
+        const ng=enter.append('g').attr('class','node').call(drag)
+          .on('mouseover',(ev,d)=>showTooltipD3(ev,d))
+          .on('mouseout',hideTooltip)
+          .on('click',(ev,d)=>{ document.getElementById('domain-input').value=d.id; switchRpTab('dga'); analyzeDomain(); });
+        ng.append('circle').attr('r', d=>d.type==='resolver'?10:d.type==='client'?7:5)
+          .attr('fill', d=> d.anomaly_score>0.5?COLORS.red :
+            d.type==='resolver'?COLORS.amber:d.type==='client'?COLORS.teal:COLORS.green)
+          .attr('stroke',d=>d.anomaly_score>0.5?COLORS.red:COLORS.bg2).attr('stroke-width',1.5)
+          .attr('filter','url(#glow)');
+        ng.append('text').attr('dy','.35em').attr('x',d=>d.type==='resolver'?13:9)
+          .attr('font-size','9px').attr('font-family','Share Tech Mono,monospace')
+          .attr('fill',COLORS.text2)
+          .text(d=>d.id.length>20?d.id.slice(0,20)+'…':d.id);
+        return ng;
+      },
+      update=>{
+        update.select('circle')
+          .attr('fill',d=>d.anomaly_score>0.5?COLORS.red:
+            d.type==='resolver'?COLORS.amber:d.type==='client'?COLORS.teal:COLORS.green);
+        return update;
+      },
+      exit=>exit.remove()
+    );
+
+  d3Sim.nodes(nodes.slice(0,150));
+  d3Sim.force('link').links(links);
+  d3Sim.alpha(0.3).restart();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Geo Canvas (world map with dot overlay)
+// ═══════════════════════════════════════════════════════════════
+let geoCtx=null, geoPackets=[];
+
+function initGeoCanvas(){
+  const canvas=document.getElementById('geo-canvas');
+  geoCtx=canvas.getContext('2d');
+  resizeGeoCanvas();
+}
+
+function resizeGeoCanvas(){
+  const c=document.getElementById('geo-canvas');
+  const p=c.parentElement;
+  c.width=p.clientWidth; c.height=p.clientHeight;
+}
+
+function latLonToXY(lat, lon, W, H){
+  const x = (lon+180)/360 * W;
+  const y = (90-lat)/180 * H;
+  return {x,y};
+}
+
+function drawGeoFrame(){
+  if(!geoCtx) return;
+  const c=document.getElementById('geo-canvas');
+  const W=c.width, H=c.height;
+  geoCtx.fillStyle='#060b10';
+  geoCtx.fillRect(0,0,W,H);
+
+  // Simple world outline grid
+  geoCtx.strokeStyle='#0a1825';
+  geoCtx.lineWidth=0.5;
+  for(let lon=-180;lon<=180;lon+=30){
+    const {x}=latLonToXY(0,lon,W,H);
+    geoCtx.beginPath(); geoCtx.moveTo(x,0); geoCtx.lineTo(x,H); geoCtx.stroke();
+  }
+  for(let lat=-90;lat<=90;lat+=30){
+    const {y}=latLonToXY(lat,0,W,H);
+    geoCtx.beginPath(); geoCtx.moveTo(0,y); geoCtx.lineTo(W,y); geoCtx.stroke();
+  }
+
+  // Known resolver positions
+  const resolvers=[
+    {ip:'8.8.8.8',lat:37.4,lon:-122.1,label:'Google',color:COLORS.amber},
+    {ip:'1.1.1.1',lat:-33.9,lon:151.2,label:'CF AU',color:COLORS.teal},
+    {ip:'9.9.9.9',lat:40.7,lon:-74.0,label:'Quad9',color:COLORS.green},
+    {ip:'208.67.222.222',lat:37.8,lon:-122.4,label:'OpenDNS',color:'#8b5cf6'},
+  ];
+  resolvers.forEach(r=>{
+    const {x,y}=latLonToXY(r.lat,r.lon,W,H);
+    geoCtx.beginPath(); geoCtx.arc(x,y,6,0,Math.PI*2);
+    geoCtx.fillStyle=r.color; geoCtx.fill();
+    geoCtx.shadowBlur=12; geoCtx.shadowColor=r.color;
+    geoCtx.fill(); geoCtx.shadowBlur=0;
+    geoCtx.fillStyle=r.color;
+    geoCtx.font='9px Share Tech Mono,monospace';
+    geoCtx.fillText(r.label, x+8, y-3);
+  });
+
+  // Animated query arcs
+  const now=Date.now();
+  geoPackets=geoPackets.filter(p=>(now-p.born)<2000);
+  geoPackets.forEach(p=>{
+    const t=(now-p.born)/2000;
+    const {x:x1,y:y1}=latLonToXY(p.srcLat,p.srcLon,W,H);
+    const {x:x2,y:y2}=latLonToXY(p.dstLat,p.dstLon,W,H);
+    const cx=(x1+x2)/2, cy=Math.min(y1,y2)-30;
+    const xi=quadBezier(x1,cx,x2,t), yi=quadBezier(y1,cy,y2,t);
+    const alpha=1-t;
+    geoCtx.beginPath(); geoCtx.arc(xi,yi,p.isDGA?3:2,0,Math.PI*2);
+    geoCtx.fillStyle=p.isDGA?`rgba(255,51,87,${alpha})`:`rgba(0,245,212,${alpha})`;
+    geoCtx.shadowBlur=p.isDGA?8:4;
+    geoCtx.shadowColor=p.isDGA?COLORS.red:COLORS.teal;
+    geoCtx.fill(); geoCtx.shadowBlur=0;
+  });
+}
+
+function quadBezier(p0,p1,p2,t){
+  return (1-t)**2*p0 + 2*(1-t)*t*p1 + t**2*p2;
+}
+
+function addGeoPacket(pkt){
+  if(!pkt.geo_src||!pkt.geo_dst) return;
+  geoPackets.push({
+    srcLat:pkt.geo_src.lat||0, srcLon:pkt.geo_src.lon||0,
+    dstLat:pkt.geo_dst.lat||0, dstLon:pkt.geo_dst.lon||0,
+    isDGA:pkt.is_dga, born:Date.now()
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Chart.js Charts
+// ═══════════════════════════════════════════════════════════════
+const CHART_DEFAULTS = {
+  responsive:true, maintainAspectRatio:false,
+  animation:{duration:0},
+  plugins:{legend:{display:false},tooltip:{
+    backgroundColor:'#0a1825ee',titleColor:'#00f5d4',bodyColor:'#c8dce8',
+    borderColor:'#1a3040',borderWidth:1,
+    titleFont:{family:'Share Tech Mono,monospace',size:10},
+    bodyFont:{family:'Share Tech Mono,monospace',size:10}
+  }},
+  scales:{
+    x:{grid:{color:'#0f2030'},ticks:{color:'#3d5a6e',font:{family:'Share Tech Mono,monospace',size:9}}},
+    y:{grid:{color:'#0f2030'},ticks:{color:'#3d5a6e',font:{family:'Share Tech Mono,monospace',size:9}}}
+  }
+};
+
+function initCharts(){
+  // Time-series latency
+  chartTs=new Chart(document.getElementById('chart-ts'),{
+    type:'line', data:{
+      labels:[],
+      datasets:[
+        {label:'Latency',data:[],borderColor:COLORS.teal,borderWidth:1.5,
+         fill:true,backgroundColor:'#00f5d410',pointRadius:0,tension:0.4},
+        {label:'EWMA',data:[],borderColor:COLORS.amber,borderWidth:1,
+         fill:false,pointRadius:0,borderDash:[4,4],tension:0.4},
+        {label:'P95',data:[],borderColor:COLORS.red,borderWidth:1,
+         fill:false,pointRadius:0,borderDash:[2,6],tension:0}
+      ]
+    },
+    options:{...CHART_DEFAULTS,
+      plugins:{...CHART_DEFAULTS.plugins,legend:{display:true,
+        labels:{color:COLORS.text2,font:{family:'Share Tech Mono,monospace',size:9}}}},
+      scales:{x:{display:false},y:{...CHART_DEFAULTS.scales.y,title:{display:true,text:'ms',color:COLORS.text2,font:{size:9}}}}}
+  });
+
+  // QPS over time
+  chartQtype=new Chart(document.getElementById('chart-qtype'),{
+    type:'bar', data:{labels:[],datasets:[
+      {label:'QPS',data:[],backgroundColor:COLORS.teal+'88',borderColor:COLORS.teal,borderWidth:1}
+    ]},
+    options:{...CHART_DEFAULTS,
+      scales:{x:{display:false},y:{...CHART_DEFAULTS.scales.y,title:{display:true,text:'QPS',color:COLORS.text2,font:{size:9}}}}}
+  });
+
+  // Queue wait time
+  chartLat=new Chart(document.getElementById('chart-lat'),{
+    type:'line', data:{labels:[],datasets:[
+      {label:'Avg Wait',data:[],borderColor:COLORS.amber,borderWidth:1.5,
+       fill:true,backgroundColor:'#ffb30010',pointRadius:0,tension:0.4},
+      {label:'Utilization%',data:[],borderColor:COLORS.red,borderWidth:1,
+       fill:false,pointRadius:0,tension:0.4,yAxisID:'y2'}
+    ]},
+    options:{...CHART_DEFAULTS,
+      plugins:{...CHART_DEFAULTS.plugins,legend:{display:true,
+        labels:{color:COLORS.text2,font:{family:'Share Tech Mono,monospace',size:9}}}},
+      scales:{
+        x:{display:false},
+        y:{...CHART_DEFAULTS.scales.y,title:{display:true,text:'ms',color:COLORS.text2,font:{size:9}}},
+        y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:COLORS.text2,font:{size:9}},
+            min:0,max:100}
+      }}
+  });
+
+  // QType pie (bottom)
+  chartQtypePie=new Chart(document.getElementById('chart-qtype-pie'),{
+    type:'doughnut', data:{labels:[],datasets:[{data:[],
+      backgroundColor:Object.values(QTYPE_COLORS),borderWidth:0,hoverOffset:4}]},
+    options:{...CHART_DEFAULTS,cutout:'60%',
+      plugins:{legend:{display:true,position:'right',
+        labels:{color:COLORS.text2,font:{family:'Share Tech Mono,monospace',size:9},boxWidth:8}}}}
+  });
+
+  // Latency histogram (bottom)
+  chartLatHist=new Chart(document.getElementById('chart-lat-hist'),{
+    type:'bar', data:{labels:[],datasets:[{label:'Count',data:[],
+      backgroundColor:COLORS.amber+'66',borderColor:COLORS.amber,borderWidth:1}]},
+    options:{...CHART_DEFAULTS,
+      scales:{x:{...CHART_DEFAULTS.scales.x,title:{display:true,text:'ms',color:COLORS.text2,font:{size:9}}},
+              y:{...CHART_DEFAULTS.scales.y}}}
+  });
+
+  // Resolver bar (bottom)
+  chartResolver=new Chart(document.getElementById('chart-resolver'),{
+    type:'bar', data:{labels:[],datasets:[{label:'Queries',data:[],
+      backgroundColor:[COLORS.teal+'88',COLORS.amber+'88',COLORS.green+'88','#8b5cf688'],
+      borderWidth:0}]},
+    options:{...CHART_DEFAULTS,indexAxis:'y',
+      scales:{x:{...CHART_DEFAULTS.scales.x},
+              y:{grid:{color:'#0f2030'},ticks:{color:COLORS.text2,font:{family:'Share Tech Mono,monospace',size:9}}}}}
+  });
+
+  // Queue stats chart
+  chartQueue=new Chart(document.getElementById('chart-queue'),{
+    type:'line', data:{labels:[],datasets:[
+      {label:'Wait ms',data:[],borderColor:COLORS.amber,borderWidth:1.5,
+       fill:false,pointRadius:0,tension:0.4},
+      {label:'Utilization%',data:[],borderColor:COLORS.red,borderWidth:1,
+       fill:false,pointRadius:0,borderDash:[4,4],tension:0.4,yAxisID:'y2'}
+    ]},
+    options:{...CHART_DEFAULTS,
+      plugins:{...CHART_DEFAULTS.plugins,legend:{display:true,
+        labels:{color:COLORS.text2,font:{family:'Share Tech Mono,monospace',size:9}}}},
+      scales:{
+        x:{display:false},
+        y:{...CHART_DEFAULTS.scales.y},
+        y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:COLORS.text2,font:{size:9}},min:0,max:100}
+      }}
+  });
+
+  // Spectral gap history
+  chartSpectral=new Chart(document.getElementById('chart-spectral'),{
+    type:'line', data:{labels:[],datasets:[
+      {label:'Spectral Gap λ₂',data:[],borderColor:COLORS.green,borderWidth:1.5,
+       fill:true,backgroundColor:'#39ff1410',pointRadius:0,tension:0.4}
+    ]},
+    options:{...CHART_DEFAULTS,
+      plugins:{...CHART_DEFAULTS.plugins,legend:{display:true,
+        labels:{color:COLORS.text2,font:{family:'Share Tech Mono,monospace',size:9}}}}}
+  });
+}
+
+function pushToChart(chart, label, values, maxLen=80){
+  if(!chart) return;
+  chart.data.labels.push(label);
+  if(chart.data.labels.length>maxLen){
+    chart.data.labels.shift();
+    chart.data.datasets.forEach(ds=>{ if(ds.data.length>maxLen) ds.data.shift(); });
+  }
+  values.forEach((v,i)=>{ if(chart.data.datasets[i]) chart.data.datasets[i].data.push(v); });
+  chart.update('none');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Markov Canvas
+// ═══════════════════════════════════════════════════════════════
+function drawMarkovChain(data){
+  const canvas=document.getElementById('markov-canvas');
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width=canvas.offsetWidth, H=canvas.height=260;
+  ctx.fillStyle='#0a1018'; ctx.fillRect(0,0,W,H);
+
+  if(!data||!data.transitions||data.transitions.length===0) return;
+
+  const states=[...new Set(data.transitions.flatMap(t=>[t.from,t.to]))].slice(0,10);
+  const N=states.length; if(N<2) return;
+  const cx=W/2, cy=H/2, r=Math.min(W,H)*0.37;
+
+  const pos={};
+  states.forEach((s,i)=>{
+    const a=2*Math.PI*i/N - Math.PI/2;
+    pos[s]={x:cx+r*Math.cos(a), y:cy+r*Math.sin(a)};
+  });
+
+  // Draw edges
+  data.transitions.forEach(t=>{
+    const s=pos[t.from], e=pos[t.to];
+    if(!s||!e||t.prob<0.01) return;
+    const alpha=Math.min(0.9, t.prob*3);
+    ctx.strokeStyle=`rgba(0,245,212,${alpha})`;
+    ctx.lineWidth=1+t.prob*4;
+    ctx.beginPath();
+    if(t.from===t.to){
+      ctx.arc(s.x, s.y-12, 8, 0, Math.PI*2);
+    } else {
+      const mx=(s.x+e.x)/2+(e.y-s.y)*0.3, my=(s.y+e.y)/2-(e.x-s.x)*0.3;
+      ctx.moveTo(s.x,s.y); ctx.quadraticCurveTo(mx,my,e.x,e.y);
+    }
+    ctx.stroke();
+    // Arrow
+    const dx=e.x-s.x, dy=e.y-s.y, len=Math.sqrt(dx*dx+dy*dy);
+    if(len>0){
+      const nx=dx/len, ny=dy/len;
+      const ex2=e.x-nx*14, ey2=e.y-ny*14;
+      ctx.beginPath(); ctx.moveTo(ex2,ey2);
+      ctx.lineTo(ex2-nx*6+ny*4, ey2-ny*6-nx*4);
+      ctx.lineTo(ex2-nx*6-ny*4, ey2-ny*6+nx*4);
+      ctx.closePath(); ctx.fillStyle=`rgba(0,245,212,${alpha})`; ctx.fill();
+    }
+  });
+
+  // Draw nodes
+  states.forEach(s=>{
+    const p=pos[s]; if(!p) return;
+    ctx.beginPath(); ctx.arc(p.x,p.y,14,0,Math.PI*2);
+    ctx.fillStyle='#0f1825'; ctx.fill();
+    ctx.strokeStyle=(QTYPE_COLORS[s]||COLORS.teal);
+    ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=(QTYPE_COLORS[s]||COLORS.teal);
+    ctx.font='Bold 10px Share Tech Mono,monospace';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(s, p.x, p.y);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  WebSocket
+// ═══════════════════════════════════════════════════════════════
+let wsRetryTimer=null;
+
+function connectWS(){
+  clearTimeout(wsRetryTimer);
+  setLoaderMsg('Connecting to server...');
+  const ws = new WebSocket(WS_URL);
+  S.ws = ws;
+
+  ws.onopen=()=>{
+    setStatus('LIVE', true);
+    hideLoader();
+    console.log('WS connected');
+  };
+
+  ws.onmessage=e=>{
+    if(S.paused) return;
+    try{ handleMsg(JSON.parse(e.data)); }
+    catch(err){ console.error('WS parse error',err); }
+  };
+
+  ws.onclose=()=>{
+    setStatus('RECONNECTING', false);
+    wsRetryTimer=setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror=()=>ws.close();
+}
+
+function handleMsg(msg){
+  const t=msg.type;
+  if(t==='init'){
+    document.getElementById('engine-badge').textContent=
+      `ENGINE: ${msg.cpp_engine?'C++ ✓':'PY ⚠'}`;
+    if(msg.graph) updateGraphViews(msg.graph);
+  }
+  else if(t==='traffic_update'){
+    processTrafficUpdate(msg);
+  }
+  else if(t==='domain_analysis'){
+    renderDGAResult(msg.result);
+  }
+  else if(t==='markov'){
+    renderMarkov(msg.data);
+  }
+  else if(t==='full_graph'){
+    updateGraphViews(msg.graph);
+  }
+  else if(t==='heartbeat'){}
+}
+
+function processTrafficUpdate(msg){
+  const now = msg.timestamp;
+
+  // PPS calculation
+  S.totalProcessed = msg.total_processed||S.totalProcessed;
+  const dt = now - S.ppsLast.t;
+  if(dt > 0.8){
+    S.ppsVal = Math.round((S.totalProcessed - S.ppsLast.n) / dt);
+    S.ppsLast = {t:now, n:S.totalProcessed};
+    S.ppsHistory.push(S.ppsVal);
+    if(S.ppsHistory.length>80) S.ppsHistory.shift();
+  }
+
+  // Live feed
+  if(msg.packets) {
+    msg.packets.forEach(p=>{
+      addToFeed(p);
+      addGeoPacket(p);
+      if(p.is_dga) addDGAAlert(p);
+    });
+  }
+
+  // Update badges
+  document.getElementById('pps-val').textContent=S.ppsVal;
+  document.getElementById('total-val').textContent=fmtNum(S.totalProcessed);
+
+  // Stats
+  if(msg.stats){
+    S.stats=msg.stats;
+    updateMetricsPanel(msg.stats);
+    updateBottomCharts(msg.stats);
+  }
+
+  // Time-series
+  if(msg.timeseries){
+    const ts=msg.timeseries;
+    const lbl=new Date(now*1000).toLocaleTimeString('en',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    pushToChart(chartTs, lbl, [ts.ewma||0, ts.ewma||0, 0]);
+    if(ts.window&&ts.window.length>0){
+      const w=ts.window;
+      const last=w[w.length-1];
+      const p95=w.slice().sort((a,b)=>a-b)[Math.floor(w.length*0.95)]||0;
+      chartTs.data.datasets[0].data[chartTs.data.datasets[0].data.length-1]=last;
+      chartTs.data.datasets[2].data[chartTs.data.datasets[2].data.length-1]=p95;
+      chartTs.update('none');
+    }
+    document.getElementById('m-zscore').textContent = ts.z_score?.toFixed(2)||'—';
+    document.getElementById('m-zscore').className='metric-value'+(ts.anomalous?' red':'');
+    document.getElementById('p95-val').textContent=(ts.window?.slice().sort((a,b)=>a-b)?.[Math.floor((ts.window?.length||0)*0.95)]||0).toFixed(1);
+
+    // QPS chart
+    pushToChart(chartQtype, lbl, [S.ppsVal]);
+    // Queue chart (use live lambda/mu)
+    const lambda=parseFloat(document.getElementById('sl-lambda').value)||80;
+    const rho=Math.min(0.999,lambda/300);
+    const waitMs=(1000/300)*rho/(1-rho+1e-9);
+    pushToChart(chartLat, lbl, [waitMs, rho*100]);
+    S.queueHistory.lambda.push(lambda);
+    S.queueHistory.rho.push(rho);
+    S.queueHistory.wait.push(waitMs);
+  }
+
+  // Graph
+  if(msg.graph) updateGraphViews(msg.graph);
+
+  // Markov
+  if(msg.markov) renderMarkov(msg.markov);
+
+  // System
+  if(msg.sys){
+    document.getElementById('m-cpu').textContent=msg.sys.cpu_percent?.toFixed(0)+'%'||'—';
+    document.getElementById('m-mem').textContent=msg.sys.memory_used_pct?.toFixed(0)+'%'||'—';
+  }
+}
+
+function updateMetricsPanel(stats){
+  document.getElementById('m-qps').textContent=S.ppsVal;
+  document.getElementById('m-lat').textContent=(stats.latency_p50||0).toFixed(1);
+  document.getElementById('m-nx').textContent=fmtNum(stats.total_nxdomain||0);
+  document.getElementById('m-nodes').textContent=stats.node_count||(S.graphData.nodes?.length||'—');
+  document.getElementById('m-dga').textContent=fmtNum(stats.dga_count||0);
+  document.getElementById('dga-val').textContent=fmtNum(stats.dga_count||0);
+  document.getElementById('total-val').textContent=fmtNum(stats.total_queries||S.totalProcessed);
+}
+
+function updateBottomCharts(stats){
+  // QType pie
+  if(stats.qtype_dist && chartQtypePie){
+    const labels=Object.keys(stats.qtype_dist);
+    const vals=Object.values(stats.qtype_dist);
+    chartQtypePie.data.labels=labels;
+    chartQtypePie.data.datasets[0].data=vals;
+    chartQtypePie.data.datasets[0].backgroundColor=labels.map(l=>QTYPE_COLORS[l]||COLORS.text2);
+    chartQtypePie.update('none');
+  }
+
+  // Latency histogram
+  if(stats.latency_p99 && chartLatHist){
+    const max=Math.max(stats.latency_p99*1.1, 10);
+    const bins=10;
+    const bw=max/bins;
+    const labels=Array.from({length:bins},(_,i)=>((i+0.5)*bw).toFixed(0));
+    // Approximate using p50/p95/p99
+    const synthetic=[8,12,15,14,12,10,8,6,4,3].map((v,i)=>{
+      const cap=i<5?stats.latency_p50:i<8?stats.latency_p95:stats.latency_p99;
+      return Math.round(v*(cap/20));
+    });
+    chartLatHist.data.labels=labels;
+    chartLatHist.data.datasets[0].data=synthetic;
+    chartLatHist.update('none');
+  }
+
+  // Resolver bar
+  if(stats.resolver_dist && chartResolver){
+    const entries=Object.entries(stats.resolver_dist).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    chartResolver.data.labels=entries.map(e=>e[0]);
+    chartResolver.data.datasets[0].data=entries.map(e=>e[1]);
+    chartResolver.update('none');
+  }
+
+  // Top domains
+  if(stats.top_domains) renderTopDomains(stats.top_domains);
+}
+
+function updateGraphViews(graphData){
+  S.graphData=graphData;
+  if(S.currentView==='3d') update3DGraph(graphData);
+  else if(S.currentView==='graph') updateD3Graph(graphData);
+  document.getElementById('m-nodes').textContent=graphData.node_count||graphData.nodes?.length||'—';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Live Feed
+// ═══════════════════════════════════════════════════════════════
+const feedEl=document.getElementById('live-feed');
+let feedBuffer=[];
+
+function addToFeed(p){
+  feedBuffer.push(p);
+  if(feedBuffer.length>300) feedBuffer.shift();
+}
+
+function flushFeed(){
+  const toAdd=feedBuffer.splice(0,feedBuffer.length);
+  if(toAdd.length===0) return;
+  const frag=document.createDocumentFragment();
+  toAdd.slice(-20).forEach(p=>{
+    const row=document.createElement('div');
+    row.className='row'+(p.is_dga?' dga':'');
+    const ts=new Date(p.timestamp_us/1000).toLocaleTimeString('en',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    row.innerHTML=`<span class="ts">${ts}</span><span class="ip">${p.src_ip}</span>`+
+      `<span class="qname">${p.qname}</span><span class="qtype">${p.qtype}</span>`+
+      `<span class="lat">${p.latency_ms.toFixed(1)}</span>`;
+    frag.appendChild(row);
+  });
+  feedEl.appendChild(frag);
+  while(feedEl.children.length>200) feedEl.removeChild(feedEl.firstChild);
+  feedEl.scrollTop=feedEl.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DGA Alerts
+// ═══════════════════════════════════════════════════════════════
+function addDGAAlert(p){
+  const el=document.getElementById('dga-alerts');
+  const div=document.createElement('div');
+  div.style.cssText='padding:3px 0;border-bottom:1px solid #1a0a10;color:var(--red)';
+  div.innerHTML=`<span style="color:var(--text3)">${new Date().toLocaleTimeString('en',{hour12:false})}</span> `+
+    `<span style="color:var(--red)">${p.qname}</span> `+
+    `<span style="color:var(--amber)">${(p.dga_prob*100).toFixed(0)}%</span>`;
+  el.insertBefore(div, el.firstChild);
+  while(el.children.length>50) el.removeChild(el.lastChild);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Domain Analysis
+// ═══════════════════════════════════════════════════════════════
+async function analyzeDomain(){
+  const d=document.getElementById('domain-input').value.trim();
+  if(!d) return;
+  if(S.ws&&S.ws.readyState===1){
+    S.ws.send(JSON.stringify({type:'analyze_domain',domain:d}));
+  } else {
+    try{
+      const r=await fetch(`${API}/api/analyze/${encodeURIComponent(d)}`);
+      renderDGAResult(await r.json());
+    }catch(e){}
+  }
+}
+
+function renderDGAResult(r){
+  if(!r) return;
+  document.getElementById('dr-entropy').textContent=r.entropy?.toFixed(4)||'—';
+  document.getElementById('dr-cr').textContent=(r.consonant_ratio*100)?.toFixed(1)+'%'||'—';
+  document.getElementById('dr-bg').textContent=r.bigram_score?.toFixed(6)||'—';
+  document.getElementById('dr-prob').textContent=(r.dga_probability*100)?.toFixed(1)+'%'||'—';
+  const verdict=document.getElementById('dr-verdict');
+  verdict.textContent=r.is_dga?'⚠ DGA DETECTED':'✓ BENIGN';
+  verdict.style.color=r.is_dga?'var(--red)':'var(--green)';
+  document.getElementById('db-dga').style.width=(r.dga_probability*100)+'%';
+  document.getElementById('db-ent').style.width=Math.min(100,r.entropy/5*100)+'%';
+  document.getElementById('db-cons').style.width=(r.consonant_ratio*100)+'%';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Queue Theory Panel
+// ═══════════════════════════════════════════════════════════════
+async function updateQueue(){
+  const lambda=parseFloat(document.getElementById('sl-lambda').value)||80;
+  const mu=parseFloat(document.getElementById('q-mu').value)||300;
+  const c=parseInt(document.getElementById('q-c').value)||1;
+  try{
+    const r=await fetch(`${API}/api/queue?lambda_qps=${lambda}&mu_qps=${mu}&c=${c}`);
+    const d=await r.json();
+    renderQueueMetrics(d);
+  }catch(e){
+    const rho=Math.min(0.999,lambda/(mu*c));
+    const wait=(1000/mu)*rho/(1-rho+1e-9);
+    renderQueueMetrics({utilization:rho,avg_wait_ms:wait,avg_sojourn_ms:wait+1000/mu,
+      avg_queue_length:rho*rho/(1-rho+1e-9),p_zero:1-rho,overloaded:rho>=1});
+  }
+}
+
+function renderQueueMetrics(d){
+  const el=document.getElementById('queue-metrics');
+  const metrics=[
+    ['Utilization ρ',((d.utilization||0)*100).toFixed(1)+'%',d.utilization>0.8?'red':''],
+    ['Avg Wait',((d.avg_wait_ms||0)).toFixed(2)+' ms','amber'],
+    ['Sojourn',((d.avg_sojourn_ms||0)).toFixed(2)+' ms',''],
+    ['Avg Queue',(d.avg_queue_length||0).toFixed(3),''],
+    ['P(0)',(d.p_zero||0).toFixed(4),''],
+    ['Status',d.overloaded?'OVERLOAD':'STABLE',d.overloaded?'red':'']
+  ];
+  el.innerHTML=metrics.map(([l,v,c])=>
+    `<div class="queue-meter"><div class="queue-meter-label">${l}</div>`+
+    `<div class="queue-meter-val" style="${c?`color:var(--${c})`:''}">${v}</div></div>`
+  ).join('');
+  const util=(d.utilization||0)*100;
+  const fillEl=document.getElementById('util-fill');
+  fillEl.style.width=Math.min(100,util)+'%';
+  fillEl.style.background=util>80?COLORS.red:util>60?COLORS.amber:COLORS.teal;
+
+  const lbl=new Date().toLocaleTimeString('en',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  pushToChart(chartQueue, lbl, [d.avg_wait_ms||0, (d.utilization||0)*100]);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Markov Render
+// ═══════════════════════════════════════════════════════════════
+function renderMarkov(data){
+  drawMarkovChain(data);
+  const statEl=document.getElementById('markov-stat');
+  if(data.stationary){
+    const entries=Object.entries(data.stationary).sort((a,b)=>b[1]-a[1]);
+    statEl.innerHTML=entries.map(([k,v])=>
+      `<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #0a1820">
+        <span style="color:${QTYPE_COLORS[k]||COLORS.text2}">${k}</span>
+        <span style="color:var(--teal)">${(v*100).toFixed(2)}%</span>
+      </div>`).join('');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Spectral Panel
+// ═══════════════════════════════════════════════════════════════
+async function analyzeFullGraph(){
+  try{
+    const r=await fetch(`${API}/api/graph/metrics`);
+    const d=await r.json();
+    renderSpectralInfo(d);
+  }catch(e){}
+}
+
+function renderSpectralInfo(d){
+  const el=document.getElementById('spectral-info');
+  S.spectralHistory.push({t:new Date().toLocaleTimeString('en',{hour12:false}), gap:d.spectral_gap||0});
+  if(S.spectralHistory.length>60) S.spectralHistory.shift();
+
+  el.innerHTML=`
+    <div class="info-row"><span class="key">Spectral Gap (λ₂)</span><span class="val">${(d.spectral_gap||0).toFixed(4)}</span></div>
+    <div class="info-row"><span class="key">Graph Nodes</span><span class="val">${d.node_count||0}</span></div>
+    <div class="info-row"><span class="key">Graph Edges</span><span class="val">${d.edge_count||0}</span></div>
+    <div class="info-row"><span class="key">Connectivity</span><span class="val" style="color:${(d.spectral_gap||0)>1?COLORS.green:COLORS.amber}">${(d.spectral_gap||0)>1.5?'WELL CONNECTED':(d.spectral_gap||0)>0.5?'MODERATE':'FRAGMENTED'}</span></div>
+  `;
+
+  // Update spectral chart
+  const lbl=S.spectralHistory.map(h=>h.t);
+  const vals=S.spectralHistory.map(h=>h.gap);
+  chartSpectral.data.labels=lbl;
+  chartSpectral.data.datasets[0].data=vals;
+  chartSpectral.update('none');
+
+  // PageRank top list
+  const nodes=(S.graphData.nodes||[]).slice().sort((a,b)=>(b.pagerank||0)-(a.pagerank||0)).slice(0,10);
+  document.getElementById('pr-list').innerHTML=nodes.map((n,i)=>
+    `<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #0a1820">
+      <span style="color:var(--text3)">${i+1}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;padding:0 6px;color:${n.type==='resolver'?COLORS.amber:COLORS.teal}">${n.id.length>22?n.id.slice(0,22)+'…':n.id}</span>
+      <span style="color:var(--green)">${(n.pagerank||0).toFixed(4)}</span>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Top Domains
+// ═══════════════════════════════════════════════════════════════
+function renderTopDomains(domains){
+  const el=document.getElementById('top-domains-list');
+  if(!domains||domains.length===0) return;
+  const maxCnt=domains[0]?.count||1;
+  el.innerHTML=domains.slice(0,12).map((d,i)=>
+    `<div class="domain-row">
+      <span class="rank">${i+1}</span>
+      <span class="dname">${d.domain}</span>
+      <span class="cnt">${fmtNum(d.count)}</span>
+      <div class="bar" style="width:${Math.max(4,(d.count/maxCnt*60))}px"></div>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Controls
+// ═══════════════════════════════════════════════════════════════
+function switchView(name){
+  S.currentView=name;
+  document.querySelectorAll('.vtab').forEach((t,i)=>{
+    const names=['3d','graph','timeline','geo'];
+    t.classList.toggle('active', names[i]===name);
+  });
+  document.querySelectorAll('.view-pane').forEach(p=>{
+    p.classList.remove('active');
+  });
+  document.getElementById(`pane-${name}`)?.classList.add('active');
+  if(name==='graph'){ initD3Graph(); if(S.graphData.nodes?.length) updateD3Graph(S.graphData); }
+  if(name==='geo'){ resizeGeoCanvas(); }
+}
+
+function switchRpTab(name){
+  S.currentRpTab=name;
+  document.querySelectorAll('.rp-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.rp-pane').forEach(p=>p.classList.remove('active'));
+  const tabs=['dga','queue','markov','spectral'];
+  document.querySelectorAll('.rp-tab')[tabs.indexOf(name)]?.classList.add('active');
+  document.getElementById(`rpane-${name}`)?.classList.add('active');
+  if(name==='queue') updateQueue();
+}
+
+function updateSlider(type, val){
+  if(type==='lambda'){
+    document.getElementById('sv-lambda').textContent=val;
+    if(S.ws&&S.ws.readyState===1) S.ws.send(JSON.stringify({type:'set_lambda',value:parseFloat(val)}));
+    updateQueue();
+  } else if(type==='dga'){
+    document.getElementById('sv-dga').textContent=val+'%';
+    if(S.ws&&S.ws.readyState===1) S.ws.send(JSON.stringify({type:'set_dga_prob',value:parseFloat(val)/100}));
+  } else if(type==='tick'){
+    document.getElementById('sv-tick').textContent=val;
+    fetch(`${API}/api/config?tick_ms=${val}`,{method:'POST'}).catch(()=>{});
+  }
+}
+
+let pauseBtn=document.getElementById('btn-pause');
+pauseBtn.addEventListener('click',()=>{
+  S.paused=!S.paused;
+  pauseBtn.textContent=S.paused?'▶ RESUME':'⏸ PAUSE';
+  pauseBtn.classList.toggle('active',S.paused);
+});
+
+function exportData(){
+  const data={stats:S.stats,graph:S.graphData,queueHistory:S.queueHistory,ts:new Date().toISOString()};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`dns_export_${Date.now()}.json`; a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Tooltip
+// ═══════════════════════════════════════════════════════════════
+function showTooltip3D(nodeId, point){
+  const n=S.graphData.nodes?.find(n=>n.id===nodeId);
+  if(!n) return;
+  const tt=document.getElementById('tooltip');
+  tt.style.display='block';
+  tt.style.left=Math.min(window.innerWidth-230,event?.clientX||400)+'px';
+  tt.style.top=(event?.clientY||300)-60+'px';
+  tt.innerHTML=`<b>${n.id}</b><br>Type: ${n.type}<br>PageRank: ${(n.pagerank||0).toFixed(5)}<br>Betweenness: ${(n.betweenness||0).toFixed(5)}<br>Queries: ${n.query_count||0}<br>Anomaly: ${(n.anomaly_score||0).toFixed(3)}`;
+}
+
+function showTooltipD3(ev, d){
+  const tt=document.getElementById('tooltip');
+  tt.style.display='block'; tt.style.left=(ev.pageX+10)+'px'; tt.style.top=(ev.pageY-40)+'px';
+  tt.innerHTML=`<b>${d.id}</b><br>Type: ${d.type}<br>PageRank: ${(d.pagerank||0).toFixed(5)}<br>Queries: ${d.query_count||0}`;
+}
+
+function hideTooltip(){ document.getElementById('tooltip').style.display='none'; }
+document.addEventListener('mousemove',e=>{
+  const tt=document.getElementById('tooltip');
+  if(tt.style.display==='block'){ tt.style.left=(e.pageX+10)+'px'; tt.style.top=(e.pageY-40)+'px'; }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  Utilities
+// ═══════════════════════════════════════════════════════════════
+function fmtNum(n){ if(n>=1e6) return (n/1e6).toFixed(1)+'M'; if(n>=1e3) return (n/1e3).toFixed(1)+'K'; return n||0; }
+function setStatus(txt, ok){
+  document.getElementById('conn-status').textContent=txt;
+  document.querySelector('.status-pill .dot').style.background=ok?COLORS.green:COLORS.amber;
+}
+function setLoaderMsg(msg){ document.getElementById('loader-msg').textContent=msg; }
+function hideLoader(){
+  const l=document.getElementById('loader');
+  l.style.opacity='0'; setTimeout(()=>l.style.display='none',500);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Main render loop (RAF)
+// ═══════════════════════════════════════════════════════════════
+function renderLoop(){
+  flushFeed();
+  if(S.currentView==='geo') drawGeoFrame();
+  requestAnimationFrame(renderLoop);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Startup
+// ═══════════════════════════════════════════════════════════════
+window.addEventListener('load', async()=>{
+  setLoaderMsg('Initializing 3D engine...');
+  init3D();
+  setLoaderMsg('Building charts...');
+  initCharts();
+  initGeoCanvas();
+  setLoaderMsg('Connecting WebSocket...');
+  connectWS();
+  requestAnimationFrame(renderLoop);
+
+  // Periodic queue update
+  setInterval(updateQueue, 5000);
+  setInterval(analyzeFullGraph, 15000);
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', e=>{
+    if(e.key==='1') switchView('3d');
+    else if(e.key==='2') switchView('graph');
+    else if(e.key==='3') switchView('timeline');
+    else if(e.key==='4') switchView('geo');
+    else if(e.key===' '){ S.paused=!S.paused; document.getElementById('btn-pause').textContent=S.paused?'▶ RESUME':'⏸ PAUSE'; }
+  });
+});
+</script>
+</body>
+</html>

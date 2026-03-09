@@ -1,0 +1,14 @@
+# DNS Traffic Visualizer — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pybind11>=2.11.1
+setuptools>=68.0.0
+numpy>=1.24.0           # optional, enhances analysis
+websockets>=12.0        # uvicorn dependency
+
+# C++ build dependencies (system):
+#   Linux:   sudo apt install g++ python3-dev
+#   macOS:   xcode-select --install
+#   Windows: Visual Studio Build Tools (cl.exe) OR mingw-w64
